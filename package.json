@@ -1,0 +1,20 @@
+{
+  "name": "statisfaction-monorepo",
+  "private": true,
+  "workspaces": [
+    "apps/server",
+    "apps/web"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,web -c blue,magenta \"npm:dev --workspace @statisfaction/server\" \"npm:dev --workspace @statisfaction/web\"",
+    "build": "npm run build --workspace @statisfaction/server && npm run build --workspace @statisfaction/web",
+    "start": "concurrently -n server,web -c blue,magenta \"npm:start --workspace @statisfaction/server\" \"npm:start --workspace @statisfaction/web\"",
+    "build-and-start": "npm run build && npm run start",
+    "lint": "echo 'No root lint'",
+    "prisma:generate": "npm run prisma:generate --workspace @statisfaction/server",
+    "prisma:migrate": "npm run prisma:migrate --workspace @statisfaction/server"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.1"
+  }
+}

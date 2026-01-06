@@ -1,0 +1,117 @@
+version: '3.8'
+
+# ===================
+# Statisfaction Production Stack
+# ===================
+# Ports utilisés : 3100 (web), 4100 (api), 5432 (postgres), 6379 (redis)
+# NGINX est géré sur l'hôte (pas dans Docker)
+
+services:
+  # ===================
+  # PostgreSQL Database
+  # ===================
+  db:
+    image: postgres:16-alpine
+    container_name: statisfaction-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-statisfaction}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: ${POSTGRES_DB:-statisfaction}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - statisfaction-network
+    # Port exposé uniquement en interne (pas sur l'hôte)
+    expose:
+      - "5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-statisfaction}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ===================
+  # Redis Cache
+  # ===================
+  redis:
+    image: redis:7-alpine
+    container_name: statisfaction-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    networks:
+      - statisfaction-network
+    # Port exposé uniquement en interne (pas sur l'hôte)
+    expose:
+      - "6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ===================
+  # Express API Server
+  # ===================
+  server:
+    build:
+      context: ./apps/server
+      dockerfile: Dockerfile
+    container_name: statisfaction-server
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 4100
+      DATABASE_URL: postgresql://${POSTGRES_USER:-statisfaction}:${POSTGRES_PASSWORD:-changeme}@db:5432/${POSTGRES_DB:-statisfaction}
+      REDIS_URL: redis://redis:6379
+      SESSION_SECRET: ${SESSION_SECRET}
+      TWITCH_CLIENT_ID: ${TWITCH_CLIENT_ID}
+      TWITCH_CLIENT_SECRET: ${TWITCH_CLIENT_SECRET}
+      TWITCH_REDIRECT_URI: ${TWITCH_REDIRECT_URI}
+      TWITCH_EVENTSUB_SECRET: ${TWITCH_EVENTSUB_SECRET}
+      TWITCH_EVENTSUB_CALLBACK_URL: ${TWITCH_EVENTSUB_CALLBACK_URL}
+      BASE_URL: ${BASE_URL:-http://localhost:4100}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3100}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+    networks:
+      - statisfaction-network
+    ports:
+      - "127.0.0.1:4100:4100"  # Exposé sur localhost uniquement (nginx fera le proxy)
+
+  # ===================
+  # Next.js Frontend
+  # ===================
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    container_name: statisfaction-web
+    restart: unless-stopped
+    depends_on:
+      - server
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4100}
+    networks:
+      - statisfaction-network
+    ports:
+      - "127.0.0.1:3100:3100"  # Exposé sur localhost uniquement (nginx fera le proxy)
+
+networks:
+  statisfaction-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:

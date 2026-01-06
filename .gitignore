@@ -1,0 +1,33 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-store/
+
+# Build output
+dist/
+.next/
+out/
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Logs
+logs
+*.log
+
+# Prisma/SQLite
+apps/server/prisma/dev.db*
+apps/server/prisma/*.sqlite*
+
+# Editor
+.DS_Store
+.vscode/
+*.swp
+*.swo
+
+# OS
+Thumbs.db

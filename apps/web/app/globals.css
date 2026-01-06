@@ -1,0 +1,60 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Twitch-like base (light) */
+  --bg: #ffffff;
+  --text: #0f1419;
+  --panel: #f3f4f6;
+  --border: #e5e7eb;
+  --brand: #9146FF; /* Twitch Purple */
+  --brand-600: #772ce8;
+  --muted: color-mix(in srgb, var(--text) 60%, transparent);
+  /* Loaders */
+  --skeleton: color-mix(in oklab, var(--text) 8%, var(--panel));
+}
+
+.dark :root,
+html.dark,
+[data-theme="dark"] {
+  /* Twitch-like dark */
+  --bg: #0e0e10; /* Twitch dark background */
+  --text: #efeff1; /* Twitch light text */
+  --panel: #18181b;
+  --border: #2a2a2d;
+  --brand: #9146FF;
+  --brand-600: #772ce8;
+  --muted: color-mix(in srgb, var(--text) 64%, transparent);
+  /* Loaders */
+  --skeleton: color-mix(in oklab, var(--text) 14%, transparent);
+}
+
+html, body { background-color: var(--bg); color: var(--text); }
+
+/* Design tokens utilities */
+.text-muted { color: var(--muted); }
+.border-default { border: 1px solid var(--border); }
+.bg-panel { background-color: color-mix(in oklab, var(--panel) 85%, transparent); }
+
+.card { background-color: color-mix(in oklab, var(--panel) 85%, transparent); border: 1px solid var(--border); border-radius: 0.5rem; padding: 1rem; }
+
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: .5rem; border-radius: .375rem; font-weight: 500; transition: background-color .15s ease, color .15s ease, border-color .15s ease; }
+.btn-brand { background-color: var(--brand); color: #fff; padding: .5rem .75rem; }
+.btn-brand:hover { background-color: var(--brand-600); }
+.btn-muted { background-color: color-mix(in oklab, var(--panel) 85%, transparent); color: var(--text); border: 1px solid var(--border); padding: .5rem .75rem; }
+.btn-muted:hover { background-color: color-mix(in oklab, var(--panel) 92%, transparent); }
+
+.input, .select { background-color: color-mix(in oklab, var(--panel) 88%, transparent); border: 1px solid var(--border); color: var(--text); border-radius: .375rem; padding: .25rem .5rem; }
+.select { padding: .5rem .5rem; }
+
+.tabbar { border-bottom: 1px solid var(--border); margin-bottom: -.5rem; }
+.tab { padding: .5rem .75rem; border: 1px solid transparent; border-bottom: none; border-top-left-radius: .375rem; border-top-right-radius: .375rem; color: var(--muted); }
+.tab:hover { color: var(--text); }
+.tab-active { background-color: color-mix(in oklab, var(--panel) 90%, transparent); border-color: var(--border); color: var(--text); }
+
+/* Accents */
+.accent-brand { accent-color: var(--brand); }
+
+/* Skeleton utility (for ad-hoc usages) */
+.skeleton { background-color: var(--skeleton); }

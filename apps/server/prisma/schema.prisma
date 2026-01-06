@@ -1,0 +1,363 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              Int       @id @default(autoincrement())
+  twitchId        String    @unique
+  login           String?
+  displayName     String?
+  email           String?
+  profileImageUrl String?
+  accessToken     String
+  refreshToken    String
+  tokenExpiresAt  DateTime
+  isAdmin         Boolean   @default(false)
+  recapEmailEnabled Boolean @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  streams         Stream[]
+  followers       FollowerEvent[]
+  annotations     Annotation[]
+  goals           Goal[]
+  webhooks        NotificationWebhook[]
+  raidEvents      RaidEvent[]
+  clipMoments     ClipMoment[]
+  createdClips    CreatedClip[]
+  schedule        ScheduleEntry[]
+  abtests         ABTest[]
+  clipSettings    ClipSettings?
+  compilations    Compilation[]
+  giveaways       Giveaway[]
+  notificationSettings NotificationSettings?
+  achievements    StreamAchievement[]
+}
+
+model Stream {
+  id             Int             @id @default(autoincrement())
+  user           User            @relation(fields: [userId], references: [id])
+  userId         Int
+  twitchStreamId String?
+  title          String?
+  category       String?
+  startedAt      DateTime        @default(now())
+  endedAt        DateTime?
+  metrics        StreamMetric[]
+  chatMetrics    ChatMetric[]
+  chatMessages   ChatMessage[]
+  annotations    Annotation[]
+  raids          RaidEvent[]
+  clipMoments    ClipMoment[]
+  createdClips   CreatedClip[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@index([userId, startedAt])
+}
+
+model CreatedClip {
+  id            Int      @id @default(autoincrement())
+  user          User     @relation(fields: [userId], references: [id])
+  userId        Int
+  stream        Stream   @relation(fields: [streamId], references: [id])
+  streamId      Int
+  twitchClipId  String   @unique
+  editUrl       String?
+  url           String?
+  confirmed     Boolean  @default(false)
+  createdAt     DateTime @default(now())
+
+  @@index([userId, streamId, createdAt])
+}
+
+model StreamMetric {
+  id          Int      @id @default(autoincrement())
+  stream      Stream   @relation(fields: [streamId], references: [id])
+  streamId    Int
+  timestamp   DateTime @default(now())
+  viewerCount Int
+
+  @@index([streamId, timestamp])
+}
+
+model FollowerEvent {
+  id          Int      @id @default(autoincrement())
+  user        User     @relation(fields: [userId], references: [id])
+  userId      Int
+  followerId  String
+  followerLogin String?
+  followerName  String?
+  followedAt  DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@index([userId, followedAt])
+  @@index([userId, createdAt])
+}
+
+// New features
+model Annotation {
+  id        Int      @id @default(autoincrement())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    Int
+  stream    Stream?  @relation(fields: [streamId], references: [id])
+  streamId  Int?
+  at        DateTime
+  type      String
+  label     String
+  meta      String?  // JSON string
+  createdAt DateTime @default(now())
+
+  @@index([userId, streamId, at])
+}
+
+model Goal {
+  id        Int      @id @default(autoincrement())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    Int
+  kind      String   // 'followers' | 'avgViewers' | 'duration'
+  target    Int
+  from      DateTime
+  to        DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId, kind, from, to])
+}
+
+model NotificationWebhook {
+  id        Int      @id @default(autoincrement())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    Int
+  kind      String   // 'discord' | 'slack' | 'webhook'
+  url       String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@index([userId, kind])
+}
+
+model RaidEvent {
+  id          Int      @id @default(autoincrement())
+  user        User     @relation(fields: [userId], references: [id])
+  userId      Int
+  stream      Stream   @relation(fields: [streamId], references: [id])
+  streamId    Int
+  at          DateTime @default(now())
+  fromViewers Int
+  toViewers   Int
+  delta       Int
+  createdAt   DateTime @default(now())
+
+  @@index([userId, streamId, at])
+}
+
+model ClipMoment {
+  id           Int      @id @default(autoincrement())
+  user         User     @relation(fields: [userId], references: [id])
+  userId       Int
+  stream       Stream   @relation(fields: [streamId], references: [id])
+  streamId     Int
+  at           DateTime
+  label        String?
+  score        Int      @default(0)
+  status       String   @default("pending") // pending, clipped, rejected, expired
+  linkedClipId String?  // twitchClipId if clipped
+  autoClipped  Boolean  @default(false)
+  expiresAt    DateTime?
+  createdAt    DateTime @default(now())
+
+  @@index([userId, streamId, at])
+  @@index([userId, status])
+  @@index([expiresAt])
+}
+
+model ChatMetric {
+  id        Int      @id @default(autoincrement())
+  stream    Stream   @relation(fields: [streamId], references: [id])
+  streamId  Int
+  timestamp DateTime @default(now())
+  messages  Int
+
+  @@index([streamId, timestamp])
+}
+
+// Phase 4: Clip settings per user
+model ClipSettings {
+  id                Int      @id @default(autoincrement())
+  user              User     @relation(fields: [userId], references: [id])
+  userId            Int      @unique
+  autoClipEnabled   Boolean  @default(false)
+  autoClipThreshold Int      @default(80) // Score minimum for auto-clip
+  notifyOnSuggest   Boolean  @default(true)
+  expirationDays    Int      @default(7) // Days before pending clips expire
+  maxClipsPerStream Int      @default(10)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+// Phase 3: Chat messages for analytics (sampled)
+model ChatMessage {
+  id        Int      @id @default(autoincrement())
+  stream    Stream   @relation(fields: [streamId], references: [id])
+  streamId  Int
+  timestamp DateTime @default(now())
+  username  String
+  content   String
+  isEmote   Boolean  @default(false)
+  sentiment Int?     // -1 = negative, 0 = neutral, 1 = positive
+
+  @@index([streamId, timestamp])
+  @@index([streamId, content])
+}
+
+model ScheduleEntry {
+  id        Int      @id @default(autoincrement())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    Int
+  title     String
+  category  String?
+  start     DateTime
+  end       DateTime
+  timezone  String?
+  twitchSegmentId String? @unique
+  createdAt DateTime @default(now())
+
+  @@index([userId, start, end])
+}
+
+model ABTest {
+  id        Int      @id @default(autoincrement())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    Int
+  name      String
+  variantA  String
+  variantB  String
+  metric    String   // 'avgViewers' | 'peakViewers' | 'followers'
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+// Phase 4: Video compilations
+model Compilation {
+  id         Int      @id @default(autoincrement())
+  user       User     @relation(fields: [userId], references: [id])
+  userId     Int
+  jobId      String   @unique
+  clipCount  Int
+  format     String   // landscape, portrait, square
+  quality    String   // low, medium, high
+  outputPath String?
+  status     String   @default("processing") // processing, done, failed
+  title      String?
+  createdAt  DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+// ================================================
+// Phase 6: Giveaway Manager
+// ================================================
+
+model Giveaway {
+  id             Int               @id @default(autoincrement())
+  user           User              @relation(fields: [userId], references: [id])
+  userId         Int
+  title          String
+  description    String?
+  prize          String            // Description du lot
+  status         String            @default("draft") // draft, active, ended, cancelled
+  entryMethod    String            @default("chat") // chat, followers, manual
+  keyword        String?           // Keyword to enter (if chat method)
+  minFollowAge   Int?              // Minimum follow age in days
+  subscriberOnly Boolean           @default(false)
+  maxEntries     Int?              // Max entries per user
+  startedAt      DateTime?
+  endedAt        DateTime?
+  winnersCount   Int               @default(1)
+  entries        GiveawayEntry[]
+  winners        GiveawayWinner[]
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@index([userId, status])
+  @@index([userId, createdAt])
+}
+
+model GiveawayEntry {
+  id           Int      @id @default(autoincrement())
+  giveaway     Giveaway @relation(fields: [giveawayId], references: [id], onDelete: Cascade)
+  giveawayId   Int
+  twitchUserId String
+  username     String
+  displayName  String?
+  isSubscriber Boolean  @default(false)
+  followAge    Int?     // Days since follow
+  entries      Int      @default(1) // Number of entries (for bonus entries)
+  createdAt    DateTime @default(now())
+
+  @@unique([giveawayId, twitchUserId])
+  @@index([giveawayId])
+}
+
+model GiveawayWinner {
+  id           Int      @id @default(autoincrement())
+  giveaway     Giveaway @relation(fields: [giveawayId], references: [id], onDelete: Cascade)
+  giveawayId   Int
+  twitchUserId String
+  username     String
+  displayName  String?
+  position     Int      @default(1) // 1st, 2nd, 3rd winner
+  claimed      Boolean  @default(false)
+  claimedAt    DateTime?
+  createdAt    DateTime @default(now())
+
+  @@unique([giveawayId, twitchUserId])
+  @@index([giveawayId])
+}
+
+// ================================================
+// Phase 6: Enhanced Notifications
+// ================================================
+
+model NotificationSettings {
+  id                  Int      @id @default(autoincrement())
+  user                User     @relation(fields: [userId], references: [id])
+  userId              Int      @unique
+  // Events to notify
+  onStreamStart       Boolean  @default(false)
+  onStreamEnd         Boolean  @default(true)
+  onNewFollower       Boolean  @default(false)
+  onRaidReceived      Boolean  @default(true)
+  onViewerMilestone   Boolean  @default(true)
+  onGoalCompleted     Boolean  @default(true)
+  onClipSuggestion    Boolean  @default(false)
+  onGiveawayWinner    Boolean  @default(true)
+  // Milestone thresholds
+  viewerMilestones    String   @default("[50,100,200,500,1000]") // JSON array
+  followerMilestones  String   @default("[100,500,1000,5000,10000]") // JSON array
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+// ================================================
+// Phase 6: Stream Achievements/Badges
+// ================================================
+
+model StreamAchievement {
+  id         Int      @id @default(autoincrement())
+  user       User     @relation(fields: [userId], references: [id])
+  userId     Int
+  streamId   Int?     // null = global achievement
+  badge      String   // Badge identifier
+  title      String
+  description String?
+  earnedAt   DateTime @default(now())
+  
+  @@unique([userId, streamId, badge])
+  @@index([userId, earnedAt])
+}

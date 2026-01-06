@@ -1,0 +1,213 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              Int       @id @default(autoincrement())
+  twitchId        String    @unique
+  login           String?
+  displayName     String?
+  email           String?
+  profileImageUrl String?
+  accessToken     String    @db.Text
+  refreshToken    String    @db.Text
+  tokenExpiresAt  DateTime
+  isAdmin         Boolean   @default(false)
+  recapEmailEnabled Boolean @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  // Relations
+  streams         Stream[]
+  followers       FollowerEvent[]
+  annotations     Annotation[]
+  goals           Goal[]
+  webhooks        NotificationWebhook[]
+  raidEvents      RaidEvent[]
+  clipMoments     ClipMoment[]
+  createdClips    CreatedClip[]
+  schedule        ScheduleEntry[]
+  abtests         ABTest[]
+
+  @@index([login])
+  @@index([email])
+}
+
+model Stream {
+  id             Int             @id @default(autoincrement())
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId         Int
+  twitchStreamId String?
+  title          String?
+  category       String?
+  startedAt      DateTime        @default(now())
+  endedAt        DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  // Relations
+  metrics        StreamMetric[]
+  chatMetrics    ChatMetric[]
+  annotations    Annotation[]
+  raids          RaidEvent[]
+  clipMoments    ClipMoment[]
+  createdClips   CreatedClip[]
+
+  @@index([userId, startedAt(sort: Desc)])
+  @@index([twitchStreamId])
+}
+
+model StreamMetric {
+  id          Int      @id @default(autoincrement())
+  stream      Stream   @relation(fields: [streamId], references: [id], onDelete: Cascade)
+  streamId    Int
+  timestamp   DateTime @default(now())
+  viewerCount Int
+
+  @@index([streamId, timestamp(sort: Desc)])
+}
+
+model ChatMetric {
+  id        Int      @id @default(autoincrement())
+  stream    Stream   @relation(fields: [streamId], references: [id], onDelete: Cascade)
+  streamId  Int
+  timestamp DateTime @default(now())
+  messages  Int
+
+  @@index([streamId, timestamp(sort: Desc)])
+}
+
+model FollowerEvent {
+  id            Int      @id @default(autoincrement())
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId        Int
+  followerId    String
+  followerLogin String?
+  followerName  String?
+  followedAt    DateTime @default(now())
+  createdAt     DateTime @default(now())
+
+  @@unique([userId, followerId])  // Évite les doublons
+  @@index([userId, followedAt(sort: Desc)])
+}
+
+model Annotation {
+  id        Int      @id @default(autoincrement())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    Int
+  stream    Stream?  @relation(fields: [streamId], references: [id], onDelete: SetNull)
+  streamId  Int?
+  at        DateTime
+  type      String
+  label     String
+  meta      Json?    // Type JSON natif PostgreSQL
+  createdAt DateTime @default(now())
+
+  @@index([userId, streamId, at])
+}
+
+model Goal {
+  id        Int      @id @default(autoincrement())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    Int
+  kind      String   // 'followers' | 'avgViewers' | 'peakViewers' | 'duration'
+  target    Int
+  from      DateTime
+  to        DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId, kind])
+  @@index([userId, from, to])
+}
+
+model NotificationWebhook {
+  id        Int      @id @default(autoincrement())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    Int
+  kind      String   // 'discord' | 'slack' | 'webhook'
+  url       String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@index([userId, kind, active])
+}
+
+model RaidEvent {
+  id          Int      @id @default(autoincrement())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      Int
+  stream      Stream   @relation(fields: [streamId], references: [id], onDelete: Cascade)
+  streamId    Int
+  at          DateTime @default(now())
+  fromViewers Int
+  toViewers   Int
+  delta       Int
+  createdAt   DateTime @default(now())
+
+  @@index([userId, at(sort: Desc)])
+  @@index([streamId, at])
+}
+
+model ClipMoment {
+  id        Int      @id @default(autoincrement())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    Int
+  stream    Stream   @relation(fields: [streamId], references: [id], onDelete: Cascade)
+  streamId  Int
+  at        DateTime
+  label     String?
+  score     Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([userId, streamId])
+  @@index([streamId, score(sort: Desc)])
+}
+
+model CreatedClip {
+  id            Int      @id @default(autoincrement())
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId        Int
+  stream        Stream   @relation(fields: [streamId], references: [id], onDelete: Cascade)
+  streamId      Int
+  twitchClipId  String   @unique
+  editUrl       String?
+  url           String?
+  confirmed     Boolean  @default(false)
+  createdAt     DateTime @default(now())
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([streamId])
+}
+
+model ScheduleEntry {
+  id              Int      @id @default(autoincrement())
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId          Int
+  title           String
+  category        String?
+  start           DateTime
+  end             DateTime
+  timezone        String?
+  twitchSegmentId String?  @unique
+  createdAt       DateTime @default(now())
+
+  @@index([userId, start(sort: Asc)])
+}
+
+model ABTest {
+  id        Int      @id @default(autoincrement())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    Int
+  name      String
+  variantA  String
+  variantB  String
+  metric    String   // 'avgViewers' | 'peakViewers' | 'followers'
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
