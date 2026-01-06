@@ -1,0 +1,175 @@
+# =============================================================================
+# Statisfaction - Docker Compose Production
+# =============================================================================
+# Ports utilisés :
+#   - 3100 : Frontend Next.js (exposé sur 127.0.0.1 uniquement)
+#   - 4100 : Backend Express API (exposé sur 127.0.0.1 uniquement)
+#   - 5432 : PostgreSQL (interne au réseau Docker uniquement)
+#   - 6379 : Redis (interne au réseau Docker uniquement)
+#
+# Nginx sur l'hôte fait le reverse proxy vers 3100/4100.
+# =============================================================================
+
+services:
+  # ===========================================================================
+  # PostgreSQL Database
+  # ===========================================================================
+  db:
+    image: postgres:16-alpine
+    container_name: statisfaction-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-statisfaction}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-statisfaction}
+      TZ: Europe/Paris
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - statisfaction-net
+    expose:
+      - "5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-statisfaction} -d ${POSTGRES_DB:-statisfaction}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ===========================================================================
+  # Redis Cache & Sessions
+  # ===========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: statisfaction-redis
+    restart: unless-stopped
+    command: >
+      redis-server 
+      --appendonly yes 
+      --maxmemory 256mb 
+      --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    networks:
+      - statisfaction-net
+    expose:
+      - "6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ===========================================================================
+  # Express API Server (Backend)
+  # ===========================================================================
+  server:
+    build:
+      context: ./apps/server
+      dockerfile: Dockerfile
+    image: statisfaction-server:latest
+    container_name: statisfaction-server
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 4100
+      TZ: Europe/Paris
+      
+      # Database
+      DATABASE_URL: postgresql://${POSTGRES_USER:-statisfaction}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-statisfaction}
+      
+      # Redis
+      REDIS_URL: redis://redis:6379
+      
+      # Session
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required}
+      COOKIE_SECURE: "true"
+      
+      # URLs
+      BASE_URL: https://statisfaction.ovh
+      FRONTEND_URL: https://statisfaction.ovh
+      PUBLIC_SITE_URL: https://statisfaction.ovh
+      
+      # Twitch OAuth
+      TWITCH_CLIENT_ID: ${TWITCH_CLIENT_ID:?TWITCH_CLIENT_ID is required}
+      TWITCH_CLIENT_SECRET: ${TWITCH_CLIENT_SECRET:?TWITCH_CLIENT_SECRET is required}
+      TWITCH_REDIRECT_URI: https://statisfaction.ovh/auth/twitch/callback
+      
+      # Twitch EventSub
+      TWITCH_EVENTSUB_SECRET: ${TWITCH_EVENTSUB_SECRET:?TWITCH_EVENTSUB_SECRET is required}
+      TWITCH_EVENTSUB_CALLBACK_URL: https://statisfaction.ovh/webhooks/twitch/eventsub
+      
+      # Email SMTP (optionnel)
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-"Statisfaction <no-reply@statisfaction.ovh>"}
+    networks:
+      - statisfaction-net
+    ports:
+      - "127.0.0.1:4100:4100"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:4100/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ===========================================================================
+  # Next.js Frontend (Web)
+  # ===========================================================================
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: https://statisfaction.ovh
+        NEXT_PUBLIC_SITE_URL: https://statisfaction.ovh
+        NEXT_PUBLIC_ADSENSE_CLIENT: ${NEXT_PUBLIC_ADSENSE_CLIENT:-ca-pub-7283351114219521}
+    image: statisfaction-web:latest
+    container_name: statisfaction-web
+    restart: unless-stopped
+    depends_on:
+      server:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3100
+      TZ: Europe/Paris
+      NEXT_PUBLIC_API_BASE_URL: https://statisfaction.ovh
+      NEXT_PUBLIC_SITE_URL: https://statisfaction.ovh
+      NEXT_PUBLIC_ADSENSE_CLIENT: ${NEXT_PUBLIC_ADSENSE_CLIENT:-ca-pub-7283351114219521}
+    networks:
+      - statisfaction-net
+    ports:
+      - "127.0.0.1:3100:3100"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3100"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  statisfaction-net:
+    driver: bridge
+    name: statisfaction-network
+
+# =============================================================================
+# Volumes (données persistantes)
+# =============================================================================
+volumes:
+  postgres_data:
+    name: statisfaction-postgres-data
+  redis_data:
+    name: statisfaction-redis-data
