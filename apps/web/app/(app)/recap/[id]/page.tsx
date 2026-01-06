@@ -47,7 +47,7 @@ export default function RecapPage() {
       </div>
       <div className="bg-gray-900/60 border border-gray-800 rounded p-4">
         <div className="font-medium mb-2">Moments à clipper</div>
-        {data.moments.length === 0 ? (
+        {!data.moments || data.moments.length === 0 ? (
           <div className="text-gray-400">Aucun moment remarqué par l’algorithme.</div>
         ) : (
           <div className="space-y-2">

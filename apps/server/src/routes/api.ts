@@ -362,7 +362,7 @@ router.get('/streams/:id/vod-link', requireAuth, async (req: Request, res: Respo
 router.get('/streams/last/recap', requireAuth, async (req: Request, res: Response) => {
   const userId = (req.session as any).userId as number;
   const stream = await prisma.stream.findFirst({ where: { userId }, orderBy: { startedAt: 'desc' } });
-  if (!stream) return res.status(404).json({ error: 'No stream' });
+  if (!stream) return res.json({ stream: null, kpis: null, moments: [], funFacts: null });
   (req as any).params = { id: String(stream.id) };
   return (router as any).handle(req, res, () => {});
 });

@@ -562,7 +562,7 @@ export default function DashboardPage() {
                 <Skeleton variant="card" className="h-10" />
                 <Skeleton variant="card" className="h-10" />
               </div>
-            ) : conversion.items.length === 0 ? (
+            ) : !conversion.items || conversion.items.length === 0 ? (
               <div className="text-gray-400">Aucun stream dans la période.</div>
             ) : (
               <div className="overflow-auto">
@@ -689,7 +689,7 @@ export default function DashboardPage() {
                 <Skeleton variant="card" className="h-10" />
                 <Skeleton variant="card" className="h-10" />
               </div>
-            ) : createdClips.items.length === 0 ? (
+            ) : !createdClips.items || createdClips.items.length === 0 ? (
               <div className="text-gray-400">Aucun clip créé via Statisfaction.</div>
             ) : (
               <div className="overflow-auto">

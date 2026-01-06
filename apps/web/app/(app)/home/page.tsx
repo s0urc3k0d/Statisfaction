@@ -12,7 +12,7 @@ export default function AppHome() {
   const display = session?.user?.displayName || session?.user?.login || 'là';
   const { data: live } = useSWR<TwitchStreamResponse>(session?.authenticated ? `${API_BASE}/api/twitch/stream` : null, fetchJSON, { refreshInterval: 15000 });
   const liveData = (live?.data && live.data[0]) || null;
-  const { data: recap } = useSWR<LastStreamResponse>(session?.authenticated ? `${API_BASE}/api/streams/last/recap` : null, fetchJSON);
+  const { data: recap } = useSWR<LastStreamResponse>(session?.authenticated ? `${API_BASE}/api/twitch/last-stream` : null, fetchJSON);
   const { show } = useToast();
   const [sending, setSending] = useState(false);
   const { data: schedule } = useSWR<ScheduleEntry[]>(session?.authenticated ? `${API_BASE}/api/schedule` : null, fetchJSON);
