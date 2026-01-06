@@ -121,9 +121,9 @@ L'URL de callback sera : `https://statisfaction.ovh/webhooks/eventsub`
 
 ```bash
 # Créer le dossier d'installation
-sudo mkdir -p /opt/statisfaction
-sudo chown $USER:$USER /opt/statisfaction
-cd /opt/statisfaction
+sudo mkdir -p /var/www/statisfaction
+sudo chown ubuntu:ubuntu /var/www/statisfaction
+cd /var/www/statisfaction
 
 # Cloner le repository
 git clone https://github.com/s0urc3k0d/Statisfaction.git .
@@ -182,7 +182,7 @@ openssl rand -hex 20
 ### 6.1 Lancement de la stack
 
 ```bash
-cd /opt/statisfaction
+cd /var/www/statisfaction
 
 # Lancement en production
 docker compose -f deploy/docker-compose.prod.yml up -d
@@ -361,7 +361,7 @@ docker compose -f deploy/docker-compose.prod.yml exec server \
 ### 11.1 Mise à jour de l'application
 
 ```bash
-cd /opt/statisfaction
+cd /var/www/statisfaction
 
 # Récupérer les dernières modifications
 git pull
@@ -385,7 +385,7 @@ docker compose -f deploy/docker-compose.prod.yml exec db \
 
 # Script de backup automatique (ajoutez au cron)
 # crontab -e
-# 0 3 * * * cd /opt/statisfaction && docker compose -f deploy/docker-compose.prod.yml exec -T db pg_dump -U statisfaction statisfaction > /opt/backups/statisfaction_$(date +\%Y\%m\%d).sql
+# 0 3 * * * cd /var/www/statisfaction && docker compose -f deploy/docker-compose.prod.yml exec -T db pg_dump -U statisfaction statisfaction > /var/www/backups/statisfaction_$(date +\%Y\%m\%d).sql
 ```
 
 ### 11.3 Logs et monitoring
