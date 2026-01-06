@@ -26,8 +26,8 @@ RUN npm run build
 # ===================
 FROM node:20-alpine AS production
 
-# Install OpenSSL for Prisma
-RUN apk add --no-cache openssl
+# Install OpenSSL for Prisma and FFmpeg for video compilation
+RUN apk add --no-cache openssl ffmpeg
 
 WORKDIR /app
 
