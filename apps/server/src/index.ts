@@ -17,7 +17,7 @@ import { startClipCleanupScheduler } from './lib/clips';
 import { config, flags, logConfigWarnings } from './config';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
-import { getAppAccessToken, getStreamDetails, listEventSubs as listEventSubsApi, deleteEventSub, subscribeEventSub as subscribeEventSubLib, subscribeEventSubWithUserToken } from './lib/twitch';
+import { getAppAccessToken, getStreamDetails, listEventSubs as listEventSubsApi, deleteEventSub, subscribeEventSub as subscribeEventSubLib } from './lib/twitch';
 import { sseHandler, broadcast } from './lib/sse';
 import { sendWebhooks } from './lib/webhooks';
 import { computeRecap } from './lib/recap';
@@ -124,8 +124,8 @@ app.post('/webhooks/twitch/eventsub', express.json({ type: 'application/json', v
           if (user && EVENTSUB_SECRET) {
             await subscribeEventSubLib('stream.online', '1', { broadcaster_user_id: user.twitchId }, EVENTSUB_CALLBACK, EVENTSUB_SECRET);
             await subscribeEventSubLib('stream.offline', '1', { broadcaster_user_id: user.twitchId }, EVENTSUB_CALLBACK, EVENTSUB_SECRET);
-            // channel.follow v2 requires user token with moderator:read:followers scope
-            await subscribeEventSubWithUserToken('channel.follow', '2', { broadcaster_user_id: user.twitchId }, EVENTSUB_CALLBACK, EVENTSUB_SECRET!, user.accessToken);
+            // channel.follow v2 - subscribeEventSubLib auto-adds moderator_user_id
+            await subscribeEventSubLib('channel.follow', '2', { broadcaster_user_id: user.twitchId }, EVENTSUB_CALLBACK, EVENTSUB_SECRET);
         }
       }
     } catch (e) {
@@ -232,14 +232,14 @@ function hasActiveSub(subs: any[], type: string, broadcasterId: string) {
   return subs.some(s => s.type === type && s.status?.toLowerCase?.() === 'enabled' && s.condition?.broadcaster_user_id === broadcasterId && s.transport?.callback === EVENTSUB_CALLBACK);
 }
 
-async function ensureEventSubForUser(user: { twitchId: string; accessToken: string }, existing?: any[]) {
+async function ensureEventSubForUser(user: { twitchId: string }, existing?: any[]) {
   const subs = existing || (await listEventSubsApi().catch(()=>({ data: [] as any[] }))).data;
   if (!hasActiveSub(subs, 'stream.online', user.twitchId)) await subscribeEventSubLib('stream.online', '1', { broadcaster_user_id: user.twitchId }, EVENTSUB_CALLBACK, EVENTSUB_SECRET!);
   if (!hasActiveSub(subs, 'stream.offline', user.twitchId)) await subscribeEventSubLib('stream.offline', '1', { broadcaster_user_id: user.twitchId }, EVENTSUB_CALLBACK, EVENTSUB_SECRET!);
-  // channel.follow v2 requires user token with moderator:read:followers scope
+  // channel.follow v2 - subscribeEventSubLib auto-adds moderator_user_id
   if (!hasActiveSub(subs, 'channel.follow', user.twitchId)) {
     try {
-      await subscribeEventSubWithUserToken('channel.follow', '2', { broadcaster_user_id: user.twitchId }, EVENTSUB_CALLBACK, EVENTSUB_SECRET!, user.accessToken);
+      await subscribeEventSubLib('channel.follow', '2', { broadcaster_user_id: user.twitchId }, EVENTSUB_CALLBACK, EVENTSUB_SECRET!);
     } catch (e: any) {
       console.warn(`channel.follow subscription failed for ${user.twitchId}:`, e?.response?.data?.message || e?.message);
     }

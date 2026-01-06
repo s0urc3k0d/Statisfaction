@@ -69,10 +69,16 @@ export async function getStreamDetails(twitchUserId: string, token: string) {
   };
 }
 
-// Souscrire EventSub avec App Access Token (pour stream.online/offline)
+// Souscrire EventSub avec App Access Token (pour stream.online/offline et channel.follow v2)
 export async function subscribeEventSub(type: string, version: string, condition: Record<string, string>, callback: string, secret: string) {
   if (!process.env.TWITCH_CLIENT_ID || !process.env.TWITCH_CLIENT_SECRET) return;
   const payloadCondition = { ...condition } as Record<string, string>;
+  // channel.follow v2 requires moderator_user_id = broadcaster_user_id
+  if (type === 'channel.follow' && version === '2') {
+    if (!payloadCondition.moderator_user_id && payloadCondition.broadcaster_user_id) {
+      payloadCondition.moderator_user_id = payloadCondition.broadcaster_user_id;
+    }
+  }
   const bearer = await getAppAccessToken();
   await withRetry(() => axios.post('https://api.twitch.tv/helix/eventsub/subscriptions', {
     type,
