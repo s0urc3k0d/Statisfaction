@@ -65,7 +65,7 @@ services:
   # ===========================================================================
   server:
     build:
-      context: ./apps/server
+      context: ../apps/server
       dockerfile: Dockerfile
     image: statisfaction-server:latest
     container_name: statisfaction-server
@@ -127,7 +127,7 @@ services:
   # ===========================================================================
   web:
     build:
-      context: ./apps/web
+      context: ../apps/web
       dockerfile: Dockerfile
       args:
         NEXT_PUBLIC_API_BASE_URL: https://statisfaction.ovh
