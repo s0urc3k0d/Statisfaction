@@ -1,10 +1,8 @@
 import { ImageResponse } from 'next/og';
 
 export const runtime = 'edge';
-export const size = { width: 32, height: 32 };
-export const contentType = 'image/x-icon';
 
-export default function Favicon() {
+export async function GET() {
   return new ImageResponse(
     (
       <div
@@ -30,6 +28,6 @@ export default function Favicon() {
         </div>
       </div>
     ),
-    { ...size }
+    { width: 32, height: 32 }
   );
 }
