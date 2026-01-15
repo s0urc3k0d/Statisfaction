@@ -96,7 +96,7 @@ router.get('/raid/candidates', requireAuth, async (req: Request, res: Response) 
 
   const headers = { 'Client-Id': CLIENT_ID, Authorization: `Bearer ${user.accessToken}` };
 
-  // 1) Recuperer infos du streamer (langue, viewers actuels, categorie)
+  // 1) Get current streamer's info
   let myLang = 'fr';
   let myViewers = 50;
   let myGameId: string | null = null;
@@ -105,164 +105,127 @@ router.get('/raid/candidates', requireAuth, async (req: Request, res: Response) 
   try {
     const [userRes, lastStream] = await Promise.all([
       axios.get(`${TWITCH_USERS_URL}?id=${user.twitchId}`, { headers }),
-      prisma.stream.findFirst({ 
-        where: { userId }, 
-        orderBy: { startedAt: 'desc' }, 
-        include: { metrics: { orderBy: { timestamp: 'desc' }, take: 1 } } 
+      prisma.stream.findFirst({
+        where: { userId },
+        orderBy: { startedAt: 'desc' },
+        include: { metrics: { orderBy: { timestamp: 'desc' }, take: 1 } }
       })
     ]);
     myLang = userRes.data?.data?.[0]?.broadcaster_language || 'fr';
     myCategory = lastStream?.category ?? null;
     myViewers = lastStream?.metrics?.[0]?.viewerCount ?? 50;
-  } catch {}
+    if (sameCategory && myCategory) {
+      try {
+        const gameRes = await axios.get(`https://api.twitch.tv/helix/games?name=${encodeURIComponent(myCategory)}`, { headers });
+        myGameId = gameRes.data?.data?.[0]?.id || null;
+      } catch (e) { console.error('Failed to resolve game ID by name', e); }
+    }
+  } catch (e) { console.error('Failed to get streamer info', e); }
 
-  // 2) Resoudre game_id depuis le nom de categorie
-  if (sameCategory && myCategory) {
-    try {
-      const gameRes = await axios.get(`https://api.twitch.tv/helix/games?name=${encodeURIComponent(myCategory)}`, { headers });
-      myGameId = gameRes.data?.data?.[0]?.id || null;
-    } catch {}
-  }
-
-  // 3) Recuperer les followings si demande
+  // 2) Get followed channels if requested
   let followingIds: string[] = [];
   if (fromFollowings) {
+    let cursor: string | undefined;
     try {
-      const fr = await axios.get(`${TWITCH_FOLLOWS_URL}?user_id=${user.twitchId}&first=100`, { headers });
-      followingIds = (fr.data?.data || []).map((f: any) => String(f.broadcaster_id));
-    } catch {}
+      do {
+        const fr = await axios.get(`${TWITCH_FOLLOWS_URL}?user_id=${user.twitchId}&first=100${cursor ? `&after=${cursor}` : ''}`, { headers });
+        followingIds.push(...(fr.data?.data || []).map((f: any) => String(f.broadcaster_id)));
+        cursor = fr.data?.pagination?.cursor;
+      } while (cursor);
+    } catch (e) { console.error('Failed to get followed channels', e); }
   }
 
-  // 4) Collecter les streams depuis plusieurs sources (pas juste TOP 100 global!)
+  // 3) Collect streams from various sources
   const allStreams: any[] = [];
   const seenIds = new Set<string>();
 
-  // 4a) Streams par categorie (si sameCategory et game_id trouve)
-  if (myGameId) {
-    try {
-      const catRes = await axios.get(`${TWITCH_STREAMS_URL}?game_id=${myGameId}&first=100`, { headers });
-      for (const s of catRes.data?.data || []) {
-        if (!seenIds.has(s.user_id)) {
-          seenIds.add(s.user_id);
-          allStreams.push({ ...s, source: 'category' });
-        }
+  const addStreams = (streams: any[], source: string) => {
+    for (const s of streams) {
+      if (!seenIds.has(s.user_id)) {
+        seenIds.add(s.user_id);
+        allStreams.push({ ...s, source });
       }
-    } catch {}
-  }
+    }
+  };
 
-  // 4b) Streams des followings (si demande et followings trouves)
+  const fetchStreams = async (params: URLSearchParams) => {
+    try {
+      const res = await axios.get(`${TWITCH_STREAMS_URL}?${params.toString()}`, { headers });
+      return res.data?.data || [];
+    } catch (e) {
+      console.error('Failed to fetch streams', e);
+      return [];
+    }
+  };
+
+  // Fetch streams from followed channels
   if (followingIds.length > 0) {
-    try {
-      const chunks = [];
-      for (let i = 0; i < followingIds.length; i += 100) {
-        chunks.push(followingIds.slice(i, i + 100));
-      }
-      for (const chunk of chunks) {
-        const params = chunk.map(id => `user_id=${id}`).join('&');
-        const fRes = await axios.get(`${TWITCH_STREAMS_URL}?${params}`, { headers });
-        for (const s of fRes.data?.data || []) {
-          if (!seenIds.has(s.user_id)) {
-            seenIds.add(s.user_id);
-            allStreams.push({ ...s, source: 'following' });
-          }
-        }
-      }
-    } catch {}
+    const chunks = [];
+    for (let i = 0; i < followingIds.length; i += 100) {
+      chunks.push(followingIds.slice(i, i + 100));
+    }
+    for (const chunk of chunks) {
+      const params = new URLSearchParams();
+      chunk.forEach(id => params.append('user_id', id));
+      addStreams(await fetchStreams(params), 'following');
+    }
   }
 
-  // 4c) Si pas assez de resultats, ajouter quelques streams par langue
+  // Fetch streams by category
+  if (myGameId) {
+    const params = new URLSearchParams({ game_id: myGameId, first: '100' });
+    addStreams(await fetchStreams(params), 'category');
+  }
+
+  // If not enough results, fetch by language
   if (allStreams.length < 20) {
-    try {
-      const langRes = await axios.get(`${TWITCH_STREAMS_URL}?language=${myLang}&first=50`, { headers });
-      for (const s of langRes.data?.data || []) {
-        if (!seenIds.has(s.user_id)) {
-          seenIds.add(s.user_id);
-          allStreams.push({ ...s, source: 'language' });
-        }
-      }
-    } catch {}
+    const params = new URLSearchParams({ language: myLang, first: '50' });
+    addStreams(await fetchStreams(params), 'language');
   }
 
-  // 5) Filtrer et mapper
+  // 4) Filter and score streams
   const now = Date.now();
   const followingsSet = new Set(followingIds);
 
-  const itemsRaw = allStreams
-    .filter(s => {
-      if (String(s.user_id) === user.twitchId) return false;
-      if (fromFollowings && !followingsSet.has(String(s.user_id))) return false;
-      if (sameCategory && myCategory && s.game_name !== myCategory) return false;
-      if (minViewers && s.viewer_count < minViewers) return false;
-      if (maxViewers && s.viewer_count > maxViewers) return false;
-      if (recentMinutes > 0) {
-        const started = new Date(s.started_at).getTime();
-        if ((now - started) > recentMinutes * 60 * 1000) return false;
+  const scoreItems = allStreams
+    .map(s => {
+      const started = new Date(s.started_at).getTime();
+      const liveMin = (now - started) / 60000;
+
+      // Apply filters
+      if (String(s.user_id) === user.twitchId) return null;
+      if (fromFollowings && !followingsSet.has(String(s.user_id))) return null;
+      if (sameCategory && myGameId && s.game_id !== myGameId) return null;
+      if (minViewers && s.viewer_count < minViewers) return null;
+      if (maxViewers && s.viewer_count > maxViewers) return null;
+      if (recentMinutes > 0 && liveMin > recentMinutes) return null;
+
+      // Scoring
+      let score = 0;
+      if (myViewers > 0) {
+        const ratio = s.viewer_count / myViewers;
+        if (ratio > 0.3 && ratio < 3) {
+          score += (1 - Math.abs(1 - ratio)) * 50; // Max 50 points for similar size
+        }
       }
-      return true;
+      if (followingsSet.has(s.user_id)) score += 30;
+      if (s.game_id === myGameId) score += 20;
+      if (s.language === myLang) score += 10;
+      score -= Math.min(liveMin / 10, 10); // Penalty for long streams
+
+      return {
+        userId: String(s.user_id),
+        login: String(s.user_login),
+        name: String(s.user_name),
+        gameName: s.game_name ? String(s.game_name) : null,
+        language: s.language ? String(s.language) : null,
+        viewerCount: Number(s.viewer_count || 0),
+        startedAt: s.started_at,
+        score: Math.round(score),
+      };
     })
-    .map(s => ({
-      odId: String(s.user_id),
-      login: String(s.user_login),
-      name: String(s.user_name),
-      gameName: s.game_name ? String(s.game_name) : null,
-      language: s.language ? String(s.language) : null,
-      viewerCount: Number(s.viewer_count || 0),
-      startedAt: s.started_at,
-      source: s.source,
-    }));
-
-  // 6) Scoring ameliore - FAVORISE les petits streamers de taille comparable
-  const weights = { cat: 0.25, follow: 0.25, lang: 0.15, viewers: 0.30, recency: 0.05 };
-
-  const scoreItems = itemsRaw.map(it => {
-    const sStart = new Date(it.startedAt).getTime();
-    const liveMin = Math.max(1, Math.round((now - sStart) / 60000));
-
-    const recencyScore = recentMinutes > 0 
-      ? Math.max(0, 1 - (liveMin / recentMinutes)) 
-      : 0.5;
-
-    const catScore = (sameCategory && myCategory) 
-      ? (it.gameName === myCategory ? 1 : 0) 
-      : (it.gameName === myCategory ? 0.8 : 0.3);
-
-    const followScore = followingsSet.has(it.odId) ? 1 : 0.2;
-
-    const langScore = it.language?.toLowerCase() === myLang.toLowerCase() ? 1 : 0.1;
-
-    let viewersScore = 0.5;
-    if (myViewers > 0) {
-      const ratio = it.viewerCount / myViewers;
-      if (ratio >= 0.3 && ratio <= 3) {
-        viewersScore = 1 - Math.abs(1 - ratio) * 0.3;
-      } else if (ratio > 3 && ratio <= 10) {
-        viewersScore = 0.4 - (ratio - 3) * 0.04;
-      } else if (ratio > 10) {
-        viewersScore = Math.max(0.05, 0.2 - (ratio - 10) * 0.01);
-      } else {
-        viewersScore = 0.3 + ratio;
-      }
-    }
-
-    const score = Number((
-      weights.cat * catScore + 
-      weights.follow * followScore + 
-      weights.lang * langScore + 
-      weights.viewers * viewersScore + 
-      weights.recency * recencyScore
-    ).toFixed(3));
-
-    return { 
-      userId: it.odId, 
-      login: it.login,
-      name: it.name,
-      gameName: it.gameName,
-      language: it.language,
-      viewerCount: it.viewerCount,
-      startedAt: it.startedAt,
-      score 
-    };
-  }).sort((a, b) => b.score - a.score);
+    .filter((s): s is NonNullable<typeof s> => s !== null)
+    .sort((a, b) => b.score - a.score);
 
   res.json({ items: scoreItems });
 });
@@ -428,6 +391,16 @@ router.get('/twitch/last-stream', requireAuth, async (req: Request, res: Respons
     });
     if (!stream) return { summary: null, series: [] };
 
+    const followersCount = await prisma.followerEvent.count({
+      where: {
+        userId,
+        followedAt: {
+          gte: stream.startedAt,
+          lte: stream.endedAt ?? new Date(),
+        },
+      },
+    });
+
     const series: { t: number; viewers: number }[] = stream.metrics.map((m: any) => ({ t: new Date(m.timestamp).getTime(), viewers: m.viewerCount as number }));
     const durationMinutes = Math.round(((stream.endedAt?.getTime() ?? Date.now()) - stream.startedAt.getTime()) / 60000);
     const peakViewers = series.length > 0 ? Math.max(...series.map((p: { viewers: number }) => p.viewers)) : 0;
@@ -438,7 +411,7 @@ router.get('/twitch/last-stream', requireAuth, async (req: Request, res: Respons
       durationMinutes,
       peakViewers,
       avgViewers,
-      newFollowers: null,
+      newFollowers: followersCount,
       newSubscribers: null,
     };
     return { summary, series };
@@ -1288,7 +1261,7 @@ router.post('/streams/:id/clips', requireAuth, async (req: Request, res: Respons
     if (data?.id) {
       try {
         saved = await prisma.createdClip.create({ data: { userId, streamId: id, twitchClipId: String(data.id), editUrl: data.edit_url ?? null, url: null, confirmed: false } });
-      } catch {}
+      } catch (e) { console.error('Failed to save created clip', e); }
       // Essayer de récupérer l'URL publique du clip et confirmer
       try {
         const gr = await axios.get(`https://api.twitch.tv/helix/clips?id=${encodeURIComponent(String(data.id))}`,{ headers: { 'Client-Id': CLIENT_ID, Authorization: `Bearer ${user.accessToken}` } });
@@ -1296,7 +1269,7 @@ router.post('/streams/:id/clips', requireAuth, async (req: Request, res: Respons
         if (gi?.url) {
           await prisma.createdClip.update({ where: { twitchClipId: String(data.id) }, data: { url: String(gi.url), confirmed: true } });
         }
-      } catch {}
+      } catch (e) { console.error('Failed to get clip public URL', e); }
     }
     return res.json({ ok: true, id: data?.id, edit_url: data?.edit_url });
   } catch (e: any) {
@@ -1343,13 +1316,13 @@ router.post('/schedule', requireAuth, async (req: Request, res: Response) => {
         const durRounded = Math.round(durationMinutes / 15) * 15;
         let categoryId: string | null = null;
         if (category) {
-          try { categoryId = await findGameIdByName(category, user.accessToken); } catch {}
+          try { categoryId = await findGameIdByName(category, user.accessToken); } catch (e) { console.error('Failed to find game ID by name for schedule', e); }
         }
         const segId = await createScheduleSegment({ broadcasterId: user.twitchId, token: user.accessToken, startTime: new Date(start).toISOString(), durationMinutes: durRounded, title, categoryId, timezone: timezone ?? undefined });
         if (segId) await prisma.scheduleEntry.update({ where: { id: created.id }, data: { twitchSegmentId: segId } });
       }
     } catch (e) {
-      // soft fail: ne bloque pas la création locale
+      console.error('Failed to sync schedule with Twitch', e);
     }
   }
   res.status(201).json(created);
@@ -1368,7 +1341,7 @@ router.delete('/schedule/:id', requireAuth, async (req: Request, res: Response) 
         await deleteScheduleSegment({ broadcasterId: user.twitchId, token: user.accessToken, segmentId: entry.twitchSegmentId });
       }
     }
-  } catch {}
+  } catch (e) { console.error('Failed to delete schedule segment on Twitch', e); }
   await prisma.scheduleEntry.delete({ where: { id } }).catch(()=>null);
   res.json({ ok: true });
 });
@@ -1415,7 +1388,7 @@ router.patch('/schedule/:id', requireAuth, async (req: Request, res: Response) =
           if (newSegId) await prisma.scheduleEntry.update({ where: { id: updated.id }, data: { twitchSegmentId: newSegId } });
         }
       }
-    } catch {}
+    } catch (e) { console.error('Failed to sync schedule with Twitch on update', e); }
   }
   res.json(updated);
 });
